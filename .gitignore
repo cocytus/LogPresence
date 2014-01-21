@@ -1,0 +1,11 @@
+Thumbs.db
+*.user
+*.suo
+bin/
+obj/
+_ReSharper*/
+[Tt]est[Rr]esult*
+testimpactdata.sdf
+*.ldf
+*.orig
+*.local.*
