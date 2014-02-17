@@ -72,7 +72,8 @@ namespace LogPrescense
 
         private static void PostProcess()
         {
-            var parsedLogData = ParseLogData(@"C:\temp\Presence.txt");
+            List<string> parseErrors;
+            var parsedLogData = ParseLogData(@"C:\temp\Presence.txt", out parseErrors);
 
             var fi = new FileInfo(@"c:\temp\PresenceHours.xlsx");
 
@@ -91,12 +92,15 @@ namespace LogPrescense
                 ws.Cells["E1"].Value = "Ov100";
                 ws.Cells["F1"].Value = "Tid inn";
                 ws.Cells["G1"].Value = "Tid ut";
+                ws.Cells["H1"].Value = "Uke total";
 
                 ws.Column(1).Width = 19;
 
-                ws.Cells["A1:G1"].Style.Font.Bold = true;
+                ws.Cells["A1:H1"].Style.Font.Bold = true;
 
                 int rowNo = 2;
+
+                var weekTime = 0m;
 
                 foreach (var logEntry in parsedLogData)
                 {
@@ -117,32 +121,54 @@ namespace LogPrescense
                     ws.Cells[rowNo, 6].Value = logEntry.EnterTime;
                     ws.Cells[rowNo, 7].Value = logEntry.LeaveTime;
 
-
                     if (logEntry.Date.DayOfWeek == DayOfWeek.Monday)
                     {
                         ws.Row(rowNo).Style.Fill.PatternType = ExcelFillStyle.Solid;
                         ws.Row(rowNo).Style.Fill.BackgroundColor.SetColor(Color.FromArgb(200, 255, 200));
+
+                        //Set week total on previous row.
+                        if (rowNo > 2 && weekTime > 0)
+                            ws.Cells[rowNo - 1, 8].Value = weekTime;
+
+                        weekTime = 0;
                     }
+
+                    weekTime += totalHours;
 
                     f.WriteLine("{0};{1:0.00};{2:0.00};{3:0.00};{4:0.00};{5};{6}", logEntry.Date.ToString("yyyy-MM-dd"), totalHours, normHours, pcs50Hours, pcs100Hours, logEntry.EnterTime.ToString("hh\\:mm"), logEntry.LeaveTime.ToString("hh\\:mm"));
 
                     rowNo++;
                     //Console.WriteLine("{0};{1:0.00};{2:0.00};{3:0.00};{4:0.00}", logEntry.Date.ToString("yyyy-MM-dd"), totalHours, normHours, pcs50Hours, pcs100Hours);
                 }
+
+                //Set week total on last row.
+                if (rowNo > 2 && weekTime > 0)
+                    ws.Cells[rowNo - 1, 8].Value = weekTime;
+
                 ws.Cells["A2:A" + rowNo].Style.Numberformat.Format = "yyyy-mm-dd";
                 ws.Cells["B2:E" + rowNo].Style.Numberformat.Format = "0.00";
                 ws.Cells["F2:G" + rowNo].Style.Numberformat.Format = "hh:mm";
+                ws.Cells["H2:H" + rowNo].Style.Numberformat.Format = "0.00";
                 ws.View.FreezePanes(2, 1);
+
+                if (parseErrors.Count > 0)
+                {
+                    var werr = xl.Workbook.Worksheets.Add("Errors");
+                    werr.Column(1).Width = 200;
+                    for (int idx = 0; idx < parseErrors.Count; idx++)
+                        werr.Cells[idx + 1, 1].Value = parseErrors[idx];
+                }
 
                 xl.Save();
             }
         }
 
-        private static List<LogEntry> ParseLogData(string path)
+        private static List<LogEntry> ParseLogData(string path, out List<string> errorList)
         {
             var logEntries = new List<LogEntry>();
             var current = new LogEntry();
             var state = EventType.Out;
+            errorList = new List<string>();
 
             foreach (var line in File.ReadLines(path))
             {
@@ -160,12 +186,12 @@ namespace LogPrescense
                             {
                                 current.LeaveTime = TimeSpan.FromHours(24);
                                 logEntries.Add(current);
-                                current = new LogEntry {EnterTime = time.TimeOfDay, Date = time.Date};
+                                current = new LogEntry {EnterTime = TimeSpan.FromSeconds(0), Date = time.Date};
                             }
                             else
                             {
                                 if (state != EventType.Out)
-                                    Console.WriteLine("Warning, no end to {0}..", current.Date);
+                                    errorList.Add(string.Format("Warning, no end to {0}..", current.Date));
                                 else
                                     logEntries.Add(current);
                             }
@@ -173,7 +199,7 @@ namespace LogPrescense
 
                         current = new LogEntry
                         {
-                            EnterTime = time.TimeOfDay,
+                            EnterTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(-3)), //Add 3 minutes since pc never is unlocked exactly when you arrive.
                             Date = time.Date
                         };
                         state = EventType.In;
@@ -181,12 +207,12 @@ namespace LogPrescense
                     else
                     {
                         state = eventType;
-                        current.LeaveTime = time.TimeOfDay;
+                        current.LeaveTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(1));
                     }
                 }
                 catch(Exception ex)
                 {
-                    Console.WriteLine("Eh, line {0} failed with {1}", line, ex.Message);
+                    errorList.Add(string.Format("Eh, line {0} failed with {1}", line, ex.Message));
                 }
             }
 
