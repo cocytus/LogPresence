@@ -245,9 +245,11 @@ namespace LogPrescense
                             }
                         }
 
+                        var enterTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(-4)); //Add 4 minutes since pc never is unlocked exactly when you arrive.
                         current = new LogEntry
                         {
-                            EnterTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(-3)), //Add 3 minutes since pc never is unlocked exactly when you arrive.
+                            EnterTime = enterTime,
+                            LeaveTime = enterTime,
                             Date = time.Date
                         };
                         state = EventType.In;
@@ -263,6 +265,8 @@ namespace LogPrescense
                     errorList.Add(string.Format("Eh, line {0} failed with {1}", line, ex.Message));
                 }
             }
+
+            logEntries.Add(current);
 
             return logEntries;
         }
