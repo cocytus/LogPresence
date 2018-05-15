@@ -9,3 +9,5 @@ testimpactdata.sdf
 *.ldf
 *.orig
 *.local.*
+.vs/
+**/packages/*
