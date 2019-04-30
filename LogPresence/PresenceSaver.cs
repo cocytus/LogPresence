@@ -93,30 +93,43 @@ namespace LogPrescense
                     var ws = xl.Workbook.Worksheets.Add("Y" + logEntryYear.Key);
 
                     ws.Cells["A1"].Value = "Dato";
-                    ws.Cells["B1"].Value = "Totalt";
-                    ws.Cells["C1"].Value = "Norm";
-                    ws.Cells["D1"].Value = "Ov50";
-                    ws.Cells["E1"].Value = "Ov100";
-                    ws.Cells["F1"].Value = "Tid inn";
-                    ws.Cells["G1"].Value = "Tid ut";
-                    ws.Cells["H1"].Value = "Uke total";
+                    ws.Cells["B1"].Value = "Dato Totalt";
+                    ws.Cells["D1"].Value = "Norm";
+                    ws.Cells["E1"].Value = "Ov50";
+                    ws.Cells["F1"].Value = "Ov100";
+                    ws.Cells["G1"].Value = "Tid inn";
+                    ws.Cells["H1"].Value = "Tid ut";
+                    ws.Cells["I1"].Value = "Uke total";
+                    ws.Cells["K1"].Value = "Måned total";
 
                     ws.Column(1).Width = 19;
 
-                    ws.Cells["A1:H1"].Style.Font.Bold = true;
+                    ws.Cells["A1:K1"].Style.Font.Bold = true;
 
                     int rowNo = 2;
 
                     var yearTotal = 0m;
+                    var monthTotal = 0m;
+                    var currMonth = -1;
 
                     foreach (var logEntryWeek in logEntryYear.GroupBy(ley => ley.WeekNumber))
                     {
                         var weekTime = 0m;
-
                         var firstday = true;
 
                         foreach (var logEntry in FillMissingDays(logEntryWeek))
                         {
+                            if (currMonth != logEntry.Date.Month)
+                            {
+                                if (monthTotal > 0m && rowNo > 2)
+                                {
+                                    ws.Cells[rowNo - 1, 11].Value = monthTotal;
+                                    ws.Cells[rowNo - 1, 12].Value = FormatHours(monthTotal);
+                                }
+                                currMonth = logEntry.Date.Month;
+                                monthTotal = 0m;
+                            }
+
                             ws.Cells[rowNo, 1].Value = logEntry.Date;
 
                             if (!logEntry.IsEmpty)
@@ -124,21 +137,25 @@ namespace LogPrescense
                                 var diff = logEntry.LeaveTime - logEntry.EnterTime;
                                 var totalHours = (decimal)diff.TotalMinutes / 60m;
                                 var normHours = Math.Min(7.5m, totalHours);
-                                var pcs50Hours = Math.Min((13m - 7.5m), totalHours - normHours);
+                                var pcs50Hours = Math.Min(13m - 7.5m, totalHours - normHours);
                                 var pcs100Hours = totalHours - (normHours + pcs50Hours);
 
                                 if (totalHours != (normHours + pcs50Hours + pcs100Hours))
+                                {
                                     throw new InvalidOperationException("programmer idiot");
+                                }
 
                                 ws.Cells[rowNo, 2].Value = totalHours;
-                                ws.Cells[rowNo, 3].Value = normHours;
-                                ws.Cells[rowNo, 4].Value = pcs50Hours;
-                                ws.Cells[rowNo, 5].Value = pcs100Hours;
-                                ws.Cells[rowNo, 6].Value = logEntry.EnterTime;
-                                ws.Cells[rowNo, 7].Value = logEntry.LeaveTime;
+                                ws.Cells[rowNo, 3].Value = FormatHours(totalHours);
+                                ws.Cells[rowNo, 4].Value = normHours;
+                                ws.Cells[rowNo, 5].Value = pcs50Hours;
+                                ws.Cells[rowNo, 6].Value = pcs100Hours;
+                                ws.Cells[rowNo, 7].Value = logEntry.EnterTime;
+                                ws.Cells[rowNo, 8].Value = logEntry.LeaveTime;
 
                                 weekTime += totalHours;
                                 yearTotal += totalHours;
+                                monthTotal += totalHours;
 
                                 csvFile.WriteLine("{0};{1:0.00};{2:0.00};{3:0.00};{4:0.00};{5};{6}",
                                     logEntry.Date.ToString("yyyy-MM-dd"), totalHours, normHours, pcs50Hours, pcs100Hours,
@@ -153,18 +170,25 @@ namespace LogPrescense
                             }
 
                             rowNo++;
-
-                            ws.Cells["A2:A" + rowNo].Style.Numberformat.Format = "yyyy-mm-dd";
-                            ws.Cells["B2:E" + rowNo].Style.Numberformat.Format = "0.00";
-                            ws.Cells["F2:G" + rowNo].Style.Numberformat.Format = "hh:mm";
-                            ws.Cells["H2:H" + rowNo].Style.Numberformat.Format = "0.00";
                         }
-
 
                         //Set week total on previous row.
                         if (rowNo > 2 && weekTime > 0)
-                            ws.Cells[rowNo - 1, 8].Value = weekTime;
+                        {
+                            ws.Cells[rowNo - 1, 9].Value = weekTime;
+                            ws.Cells[rowNo - 1, 10].Value = FormatHours(weekTime);
+                        }
                     }
+
+                    ws.Cells[$"A2:A{rowNo}"].Style.Numberformat.Format = "yyyy-mm-dd";
+                    ws.Cells[$"B2:B{rowNo}"].Style.Numberformat.Format = "0.00";
+                    ws.Cells[$"C2:C{rowNo}"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
+                    ws.Cells[$"D2:F{rowNo}"].Style.Numberformat.Format = "0.00";
+                    ws.Cells[$"G2:H{rowNo}"].Style.Numberformat.Format = "[HH]:mm";
+                    ws.Cells[$"I2:I{rowNo}"].Style.Numberformat.Format = "0.00";
+                    ws.Cells[$"J2:J{rowNo}"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
+                    ws.Cells[$"K2:K{rowNo}"].Style.Numberformat.Format = "0.00";
+                    ws.Cells[$"L2:L{rowNo}"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
 
                     rowNo += 2;
                     ws.Cells[rowNo, 6].Value = "År totalt";
@@ -185,6 +209,8 @@ namespace LogPrescense
                 xl.Save();
             }
         }
+
+        private static string FormatHours(decimal hours) => $"{Math.Floor(hours):00}:{(int)(Math.Round((hours % 1.0m) * 60)):00}";
 
         private static IEnumerable<LogEntry> FillMissingDays(IEnumerable<LogEntry> les)
         {
