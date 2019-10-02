@@ -13,7 +13,7 @@ using System.Text.RegularExpressions;
 using OfficeOpenXml;
 using OfficeOpenXml.Style;
 
-namespace LogPrescense
+namespace LogPresence
 {
     public class PresenceSaver : ServiceBase
     {
@@ -84,6 +84,9 @@ namespace LogPrescense
 
             if (fi.Exists)
                 File.Delete(fi.FullName);
+
+            var widg = new WorkItemByDayGenerator();
+            widg.Load(@"C:\temp\workItems.txt");
 
             using (var csvFile = new StreamWriter(@"C:\temp\PresenceHours.csv", false))
             using (var xl = new ExcelPackage(fi))
@@ -166,6 +169,7 @@ namespace LogPrescense
                             {
                                 ws.Row(rowNo).Style.Fill.PatternType = ExcelFillStyle.Solid;
                                 ws.Row(rowNo).Style.Fill.BackgroundColor.SetColor(Color.FromArgb(200, 255, 200));
+                                ws.Cells[rowNo, 13].Value = $"Uke {logEntry.WeekNumber}";
                                 firstday = false;
                             }
 
@@ -206,7 +210,102 @@ namespace LogPrescense
                         werr.Cells[idx + 1, 1].Value = parseErrors[idx];
                 }
 
+                GenerateWorkItemPages(xl, widg, parsedLogData);
+
                 xl.Save();
+            }
+        }
+
+        private static void GenerateWorkItemPages(ExcelPackage xl, WorkItemByDayGenerator widg, List<LogEntry> parsedLogData)
+        {
+
+            foreach (var logEntryYear in parsedLogData.GroupBy(pld => pld.Date.Year))
+            {
+                var allDays = new List<WorkItemOnDay>();
+
+                var ws = xl.Workbook.Worksheets.Add("Y" + logEntryYear.Key + "_wi");
+
+                ws.Cells["A1"].Value = "Dato";
+                ws.Cells["B1"].Value = "Work item";
+                ws.Cells["C1"].Value = "Hours";
+                ws.Cells["D1"].Value = "Start time";
+                ws.Cells["E1"].Value = "Activity";
+                ws.Cells["F1"].Value = "Description";
+                ws.Column(1).Width = 19;
+                ws.Column(2).Width = 10;
+                ws.Column(4).Width = 10;
+                ws.Column(5).Width = 20;
+                ws.Column(6).Width = 100;
+                ws.Cells["A1:K1"].Style.Font.Bold = true;
+
+                int rowNo = 2;
+
+                bool gray = false;
+
+                foreach (var logEntry in logEntryYear) 
+                {
+                    var diff = logEntry.LeaveTime - logEntry.EnterTime;
+                    var totalHours = (decimal)diff.TotalMinutes / 60m;
+
+                    var currStartTime = logEntry.EnterTime;
+
+                    foreach (var wiElement in widg.GetWorkItemOnDays(logEntry.Date, totalHours))
+                    {
+                        allDays.Add(wiElement);
+
+                        if (gray)
+                        {
+                            ws.Row(rowNo).Style.Fill.PatternType = ExcelFillStyle.Solid;
+                            ws.Row(rowNo).Style.Fill.BackgroundColor.SetColor(Color.FromArgb(240, 240, 240));
+                        }
+
+                        ws.Cells[rowNo, 1].Value = logEntry.Date;
+                        ws.Cells[rowNo, 2].Value = wiElement.WorkItemId;
+                        ws.Cells[rowNo, 3].Value = wiElement.Hours;
+                        ws.Cells[rowNo, 4].Value = currStartTime;
+                        ws.Cells[rowNo, 4].Style.Numberformat.Format = "[HH]:mm";
+                        ws.Cells[rowNo, 5].Value = wiElement.Activity;
+                        ws.Cells[rowNo, 6].Value = wiElement.Description;
+
+                        currStartTime = currStartTime.Add(TimeSpan.FromHours((double)wiElement.Hours));
+                        rowNo++;
+                    }
+
+                    gray = !gray;
+                }
+
+                ws.Cells[$"A2:A{rowNo}"].Style.Numberformat.Format = "mm/dd/yyyy";
+                ws.Cells[$"C2:C{rowNo}"].Style.Numberformat.Format = "0.00";
+
+                var byWorkItem = allDays.GroupBy(d => d.WorkItemId).Select(grp => new 
+                    { 
+                        WorkItem = grp.Key, 
+                        Descrs = grp.Select(g => g.Description).Where(d => d.Length > 0).Distinct().ToArray(), 
+                        HoursSum = grp.Sum(g => g.Hours)
+                    }).ToArray();
+
+                rowNo += 2;
+
+                ws.Cells[rowNo, 1].Value = "Total sums per work item";
+                rowNo += 2;
+                ws.Cells[rowNo, 2].Value = "Work item";
+                ws.Cells[rowNo, 3].Value = "Hours";
+                ws.Cells[rowNo, 5].Value = "Description";
+                ws.Cells[rowNo, 1, rowNo, 10].Style.Font.Bold = true;
+
+                rowNo++;
+
+                foreach (var wi in byWorkItem.OrderBy(by => by.HoursSum))
+                {
+                    ws.Cells[rowNo, 2].Value = wi.WorkItem;
+
+                    ws.Cells[rowNo, 3].Value = wi.HoursSum;
+                    ws.Cells[rowNo, 3].Style.Numberformat.Format = "0.00";
+
+                    ws.Cells[rowNo, 6].Value = string.Join(", ", wi.Descrs);
+
+                    rowNo++;
+                }
             }
         }
 

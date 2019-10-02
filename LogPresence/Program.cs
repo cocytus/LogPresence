@@ -2,7 +2,7 @@
 using System.Globalization;
 using System.ServiceProcess;
 
-namespace LogPrescense
+namespace LogPresence
 {
     static class Program
     {

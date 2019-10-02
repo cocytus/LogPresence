@@ -1,26 +1,20 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.27703.2000
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29326.143
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LogPresence", "LogPresence\LogPresence.csproj", "{A05BD5B8-657A-4D42-90C9-8D9CD1A3D2C0}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
-		Debug|x86 = Debug|x86
 		Release|x64 = Release|x64
-		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{A05BD5B8-657A-4D42-90C9-8D9CD1A3D2C0}.Debug|x64.ActiveCfg = Debug|x64
 		{A05BD5B8-657A-4D42-90C9-8D9CD1A3D2C0}.Debug|x64.Build.0 = Debug|x64
-		{A05BD5B8-657A-4D42-90C9-8D9CD1A3D2C0}.Debug|x86.ActiveCfg = Debug|x86
-		{A05BD5B8-657A-4D42-90C9-8D9CD1A3D2C0}.Debug|x86.Build.0 = Debug|x86
 		{A05BD5B8-657A-4D42-90C9-8D9CD1A3D2C0}.Release|x64.ActiveCfg = Release|x64
 		{A05BD5B8-657A-4D42-90C9-8D9CD1A3D2C0}.Release|x64.Build.0 = Release|x64
-		{A05BD5B8-657A-4D42-90C9-8D9CD1A3D2C0}.Release|x86.ActiveCfg = Release|x86
-		{A05BD5B8-657A-4D42-90C9-8D9CD1A3D2C0}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
