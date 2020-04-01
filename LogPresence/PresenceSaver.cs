@@ -1,15 +1,10 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Linq.Expressions;
-using System.Net.Configuration;
-using System.Runtime.InteropServices;
 using System.ServiceProcess;
-using System.Text.RegularExpressions;
 using OfficeOpenXml;
 using OfficeOpenXml.Style;
 
@@ -342,10 +337,36 @@ namespace LogPresence
             var current = new LogEntry();
             var state = EventType.Out;
             errorList = new List<string>();
+            var startOffset = -4;
+            var endOffset = 1;
 
-            foreach (var line in File.ReadLines(path))
+            foreach (var liner in File.ReadLines(path))
             {
-                try {
+                var line = liner.Trim();
+                try 
+                {
+                    if (line.StartsWith("#"))
+                    {
+                        var cmd = line.Substring(1).ToUpper();
+                        if (cmd == "NOOFFSET")
+                        {
+                            startOffset = 0;
+                            endOffset = 0;
+                        }
+                        else if (cmd == "DEFAULTOFFSET")
+                        {
+                            startOffset = -4;
+                            endOffset = 1;
+                        }
+
+                        continue;
+                    }
+
+                    if (line.Length == 0)
+                    {
+                        continue;
+                    }
+
                     var comp = line.Split(new[] { ": " }, 2, StringSplitOptions.None);
                     var time = DateTime.ParseExact(comp[0], "dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture);
                     var eventType = GetEventType(comp[1]);
@@ -370,7 +391,7 @@ namespace LogPresence
                             }
                         }
 
-                        var enterTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(-4)); //Add 4 minutes since pc never is unlocked exactly when you arrive.
+                        var enterTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(startOffset)); //Add 4 minutes since pc never is unlocked exactly when you arrive.
                         current = new LogEntry
                         {
                             EnterTime = enterTime,
@@ -382,7 +403,7 @@ namespace LogPresence
                     else
                     {
                         state = eventType;
-                        current.LeaveTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(1));
+                        current.LeaveTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(endOffset));
                     }
                 }
                 catch(Exception ex)
@@ -415,6 +436,9 @@ namespace LogPresence
 
         public class LogEntry
         {
+            public bool IsComment;
+            public string Comment;
+
             private static readonly Calendar Cal = CultureInfo.CurrentCulture.Calendar;
             private static readonly CalendarWeekRule CWR = DateTimeFormatInfo.CurrentInfo.CalendarWeekRule;
             private int _weekNumber = -1;
