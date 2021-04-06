@@ -80,8 +80,18 @@ namespace LogPresence
             if (fi.Exists)
                 File.Delete(fi.FullName);
 
-            var widg = new WorkItemByDayGenerator();
-            widg.Load(@"C:\temp\workItems.txt");
+            IWorkItemGenerator widg;
+
+            if (File.Exists(@"C:\temp\workItems.txt"))
+            {
+                var tw = new WorkItemByDayGenerator();
+                tw.Load(@"C:\temp\workItems.txt");
+                widg = tw;
+            }
+            else
+            {
+                widg = new WorkItemFromCommentGenerator(parsedLogData);
+            }
 
             using (var csvFile = new StreamWriter(@"C:\temp\PresenceHours.csv", false))
             using (var xl = new ExcelPackage(fi))
@@ -211,9 +221,8 @@ namespace LogPresence
             }
         }
 
-        private static void GenerateWorkItemPages(ExcelPackage xl, WorkItemByDayGenerator widg, List<LogEntry> parsedLogData)
+        private static void GenerateWorkItemPages(ExcelPackage xl, IWorkItemGenerator widg, List<LogEntry> parsedLogData)
         {
-
             foreach (var logEntryYear in parsedLogData.GroupBy(pld => pld.Date.Year))
             {
                 var allDays = new List<WorkItemOnDay>();
@@ -244,7 +253,7 @@ namespace LogPresence
 
                     var currStartTime = logEntry.EnterTime;
 
-                    foreach (var wiElement in widg.GetWorkItemOnDays(logEntry.Date, totalHours))
+                    foreach (var wiElement in widg.GetWorkItemsOnDay(logEntry.Date, totalHours))
                     {
                         allDays.Add(wiElement);
 
@@ -339,6 +348,7 @@ namespace LogPresence
             errorList = new List<string>();
             var startOffset = -4;
             var endOffset = 1;
+            var currWiLine = string.Empty;
 
             foreach (var liner in File.ReadLines(path))
             {
@@ -347,7 +357,7 @@ namespace LogPresence
                 {
                     if (line.StartsWith("#"))
                     {
-                        var cmd = line.Substring(1).ToUpper();
+                        var cmd = line.Substring(1).Trim().ToUpper();
                         if (cmd == "NOOFFSET")
                         {
                             startOffset = 0;
@@ -357,6 +367,15 @@ namespace LogPresence
                         {
                             startOffset = -4;
                             endOffset = 1;
+                        }
+                        else if (cmd.StartsWith("WI"))
+                        {
+                            if (!cmd.StartsWith("WI: "))
+                            {
+                                throw new InvalidOperationException("Invalid WI line " + line);
+                            }
+
+                            currWiLine = line;
                         }
 
                         continue;
@@ -380,7 +399,8 @@ namespace LogPresence
                             {
                                 current.LeaveTime = TimeSpan.FromHours(24);
                                 logEntries.Add(current);
-                                current = new LogEntry {EnterTime = TimeSpan.FromSeconds(0), Date = time.Date};
+                                current = new LogEntry {EnterTime = TimeSpan.FromSeconds(0), Date = time.Date, WorkItemsLine = currWiLine};
+                                currWiLine = string.Empty;
                             }
                             else
                             {
@@ -391,14 +411,16 @@ namespace LogPresence
                             }
                         }
 
-                        var enterTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(startOffset)); //Add 4 minutes since pc never is unlocked exactly when you arrive.
+                        var enterTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(startOffset));
                         current = new LogEntry
                         {
                             EnterTime = enterTime,
                             LeaveTime = enterTime,
-                            Date = time.Date
+                            Date = time.Date,
+                            WorkItemsLine = currWiLine
                         };
                         state = EventType.In;
+                        currWiLine = string.Empty;
                     }
                     else
                     {
@@ -406,7 +428,7 @@ namespace LogPresence
                         current.LeaveTime = time.TimeOfDay.Add(TimeSpan.FromMinutes(endOffset));
                     }
                 }
-                catch(Exception ex)
+                catch (Exception ex)
                 {
                     errorList.Add(string.Format("Eh, line {0} failed with {1}", line, ex.Message));
                 }
@@ -458,6 +480,8 @@ namespace LogPresence
             public DateTime Date;
             public TimeSpan EnterTime;
             public TimeSpan LeaveTime;
+
+            public string WorkItemsLine { get; set; }
         }
     }
 }

@@ -6,7 +6,7 @@ using System.Linq;
 
 namespace LogPresence
 {
-    public class WorkItemByDayGenerator
+    public class WorkItemByDayGenerator : IWorkItemGenerator
     {
         public void Load(string fileName)
         {
@@ -44,11 +44,11 @@ namespace LogPresence
 
                 var hours = hrsCmp[0];
 
-                if (hours.EndsWith("H")) 
+                if (hours.EndsWith("H"))
                 {
                     ts.HoursPerDay = decimal.Parse(hours.Substring(0, hours.Length - 1), CultureInfo.InvariantCulture);
                     ts.IsPercentage = false;
-                } 
+                }
                 else
                 {
                     ts.Percentage = decimal.Parse(hours, CultureInfo.InvariantCulture);
@@ -100,7 +100,7 @@ namespace LogPresence
             }
         }
 
-        public IEnumerable<WorkItemOnDay> GetWorkItemOnDays(DateTime date, decimal totalHours)
+        public IEnumerable<WorkItemOnDay> GetWorkItemsOnDay(DateTime date, decimal totalHours)
         {
             var activeSegments = GetActiveSegments(date);
 
@@ -121,7 +121,7 @@ namespace LogPresence
             var retList = new List<WorkItemOnDay>();
 
             foreach (var ts in hoursPerDay)
-            { 
+            {
                 if (hoursLeft > 0m)
                 {
                     var wiod = new WorkItemOnDay
@@ -181,14 +181,6 @@ namespace LogPresence
 
             return activeSegments;
         }
-    }
-
-    public class WorkItemOnDay
-    {
-        public int WorkItemId { get; set; }
-        public decimal Hours { get; set; }
-        public string Activity { get; set; }
-        public string Description { get; set; }
     }
 
     class TimeSegment
