@@ -67,7 +67,7 @@ namespace LogPresence
                     ts.Flags = flags.Split(' ').Aggregate(TimeSegmentFlags.Default, (f, s) => (TimeSegmentFlags)Enum.Parse(typeof(TimeSegmentFlags), s) | f);
                 }
 
-                ts.Activity = ExpandActivity(lineComponents[idx++]);
+                ts.Activity = ActivityMap.ExpandActivity(lineComponents[idx++]);
 
                 ts.Description = lineComponents[idx++];
 
@@ -87,16 +87,6 @@ namespace LogPresence
                     throw new InvalidOperationException("Dates not sequential");
                 }
                 prevDate = ts.Date;
-            }
-        }
-
-        private string ExpandActivity(string activity)
-        {
-            switch (activity)
-            {
-                case "D": return "Development";
-                case "TD": return "Technical Debt";
-                default: return activity;
             }
         }
 

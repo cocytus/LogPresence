@@ -48,6 +48,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ActivityMap.cs" />
     <Compile Include="IWorkItemGenerator.cs" />
     <Compile Include="PresenceSaver.cs">
       <SubType>Component</SubType>

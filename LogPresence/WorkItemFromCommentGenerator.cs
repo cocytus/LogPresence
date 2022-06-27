@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -32,7 +33,7 @@ namespace LogPresence
                     var wiod = new WorkItemOnDay
                     {
                         WorkItemId = ts.WorkItem,
-                        Activity = "Development",
+                        Activity = ActivityMap.ExpandActivity(ts.ActivityCode),
                         Hours = Math.Min(hoursLeft, ts.Hours),
                         Description = ts.Description
                     };
@@ -62,7 +63,7 @@ namespace LogPresence
                     yield return new WorkItemOnDay
                     {
                         WorkItemId = byPss.WorkItem,
-                        Activity = "Development",
+                        Activity = ActivityMap.ExpandActivity(byPss.ActivityCode),
                         Hours = (byPss.Percentage / totalPercentage) * hoursLeft,
                         Description = byPss.Description
                     };
@@ -71,7 +72,7 @@ namespace LogPresence
 
         }
 
-        // WI: #123: 20%D Descr | #123: 2H Descr
+        // WI: #123: 20%D Descr | #123: 2H/Dev|Req|Plan|Test|TD|TS| Descr
         // WID: #123: Neat
 
         private class Info
@@ -80,6 +81,7 @@ namespace LogPresence
             public decimal Percentage { get; set; }
             public decimal Hours { get; set; }
             public string Description { get; set; }
+            public string ActivityCode { get; set; }
         }
 
         private IEnumerable<Info> ParseLine(string lineRaw)
@@ -95,7 +97,7 @@ namespace LogPresence
             var elems = line.Split('|');
             foreach (var elem in elems)
             {
-                var m = Regex.Match(elem, @"\s*#([\d]+):?\s+([\d]+)\s*(%|H)(.*)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                var m = Regex.Match(elem, @"\s*#([\d]+):?\s+([\d.]+)\s*(%|H)(?:/([a-z]+))?(.*)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
                 if (!m.Success)
                 {
@@ -105,9 +107,10 @@ namespace LogPresence
                 var info = new Info
                 {
                     WorkItem = int.Parse(m.Groups[1].Value),
-                    Description = m.Groups[4].Value.Trim(),
-                    Hours = m.Groups[3].Value == "H" ? decimal.Parse(m.Groups[2].Value) : 0,
-                    Percentage = m.Groups[3].Value == "%" ? decimal.Parse(m.Groups[2].Value) : 0,
+                    Description = m.Groups[5].Value.Trim(),
+                    Hours = m.Groups[3].Value == "H" ? decimal.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) : 0,
+                    Percentage = m.Groups[3].Value == "%" ? decimal.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) : 0,
+                    ActivityCode = m.Groups[4].Value.Trim()
                 };
 
                 yield return info;
