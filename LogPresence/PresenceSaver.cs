@@ -246,7 +246,7 @@ namespace LogPresence
 
                 bool gray = false;
 
-                foreach (var logEntry in logEntryYear) 
+                foreach (var logEntry in logEntryYear.OrderBy(le => le.Date))
                 {
                     var diff = logEntry.LeaveTime - logEntry.EnterTime;
                     var totalHours = (decimal)diff.TotalMinutes / 60m;
