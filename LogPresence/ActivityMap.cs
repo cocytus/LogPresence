@@ -15,6 +15,7 @@ namespace LogPresence
             { "DOC", "Documentation" },
             { "DES", "Design" },
             { "OP", "Operations" },
+            { "ABS", "Absence" },
         };
 
         public static string ExpandActivity(string activity)

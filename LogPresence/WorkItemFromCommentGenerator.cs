@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Microsoft.Extensions.Configuration;
+using OfficeOpenXml.FormulaParsing;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -9,20 +11,26 @@ namespace LogPresence
     internal class WorkItemFromCommentGenerator : IWorkItemGenerator
     {
         private readonly Dictionary<DateTime, string> _lookup;
+        private readonly IConfiguration _config;
 
-        public WorkItemFromCommentGenerator(List<PresenceSaver.LogEntry> parsedLogData)
+        public WorkItemFromCommentGenerator(IConfiguration config, List<PresenceSaver.LogEntry> parsedLogData)
         {
             _lookup = parsedLogData.ToDictionary(le => le.Date, le => le.WorkItemsLine);
+            _config = config;
         }
 
         public IEnumerable<WorkItemOnDay> GetWorkItemsOnDay(DateTime date, decimal totalHours)
         {
-            if (!_lookup.TryGetValue(date, out var line) || line.Length < 2)
-            {
-                yield break;
-            }
+            Info[] parts;
 
-            var parts = ParseLine(line).ToArray();
+            if (_lookup.TryGetValue(date, out var line) && line.Length > 2)
+            {
+                parts = ParseLine(line).ToArray();
+            }
+            else
+            {
+                parts = Array.Empty<Info>();
+            }
 
             var hoursLeft = totalHours;
 
@@ -42,7 +50,7 @@ namespace LogPresence
                 }
             }
 
-            if (hoursLeft > 0m)
+            if (hoursLeft > 0m && parts.Length > 0)
             {
                 var byPercentage = parts.Where(p => p.Percentage > 0).ToArray();
 
@@ -70,6 +78,22 @@ namespace LogPresence
                 }
             }
 
+            if (totalHours < 7.5m)
+            {
+                var wiId = _config.GetValue<int>($"Absence:Y{date.Year}");
+                if (wiId == 0)
+                {
+                    throw new InvalidOperationException($"Missing absent for year {date.Year}");
+                }
+
+                yield return new WorkItemOnDay
+                {
+                    WorkItemId = wiId,
+                    Activity = "Absence",
+                    Hours = 7.5m - totalHours,
+                    Description = "Gotta love this"
+                };
+            }
         }
 
         // WI: #123: 20%D Descr | #123: 2H/Dev|Req|Plan|Test|TD|TS| Descr
@@ -112,6 +136,11 @@ namespace LogPresence
                     Percentage = m.Groups[3].Value == "%" ? decimal.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) : 0,
                     ActivityCode = m.Groups[4].Value.Trim()
                 };
+
+                if (info.ActivityCode == "ABS" && (info.Hours > 0 || info.Percentage > 0))
+                {
+                    throw new InvalidOperationException("Absent activity can only have 0H as duration");
+                }
 
                 yield return info;
             }

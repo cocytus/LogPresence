@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.ServiceProcess;
+using Microsoft.Extensions.Configuration;
 using OfficeOpenXml;
 using OfficeOpenXml.Style;
 
@@ -12,10 +13,15 @@ namespace LogPresence
 {
     public class PresenceSaver : ServiceBase
     {
-        public PresenceSaver()
+        private readonly string _outputFolder;
+        private readonly string _presenceFile;
+
+        public PresenceSaver(IConfiguration config) : base()
         {
             CanHandleSessionChangeEvent = true;
-            ServiceName = "LogPresence";
+            _config = config;
+            _outputFolder = config["OutputFolder"] ?? throw new InvalidOperationException("Invalid config");
+            _presenceFile = config["PresenceFile"] ?? throw new InvalidOperationException("Invalid config");
         }
 
         protected override void OnStart(string[] args)
@@ -35,11 +41,11 @@ namespace LogPresence
             base.OnSessionChange(changeDescription);
         }
 
-        public static void Log(string s, params object[] objs)
+        public void Log(string s, params object[] objs)
         {
             try
             {
-                using (var sw = new StreamWriter(@"C:\temp\Presence.txt", true))
+                using (var sw = new StreamWriter(_presenceFile, true))
                 {
                     sw.WriteLine(string.Format("{0}: {1}", DateTime.Now.ToString("dd.MM.yyyy HH:mm"),
                         string.Format(s, objs)));
@@ -50,7 +56,7 @@ namespace LogPresence
             {
                 try
                 {
-                    File.WriteAllText(@"c:\temp\Presence_Error.txt", "Error: " + ex);
+                    File.WriteAllText(OutputFile("Presence_Error.txt"), "Error: " + ex);
                 }
                 catch
                 {
@@ -58,167 +64,155 @@ namespace LogPresence
             }
         }
 
-        private static DateTime _lastProcessDate;
+        private string OutputFile(string name) => Path.Combine(_outputFolder, name);
 
-        public static void PostProcessIfNewDay()
+        private DateTime _lastProcessDate;
+
+        public void PostProcessIfNewDay()
         {
             if (_lastProcessDate == DateTime.Today)
                 return;
 
             PostProcess();
-
             _lastProcessDate = DateTime.Today;
         }
 
-        private static void PostProcess()
+        private void PostProcess()
         {
-            List<string> parseErrors;
-            var parsedLogData = ParseLogData(@"C:\temp\Presence.txt", out parseErrors);
+            var (parsedLogData, parseErrors) = ParseLogData(_presenceFile);
 
-            var fi = new FileInfo(@"c:\temp\PresenceHours.xlsx");
+            var fi = new FileInfo(OutputFile("PresenceHours.xlsx"));
 
             if (fi.Exists)
                 File.Delete(fi.FullName);
 
-            IWorkItemGenerator widg;
+            var widg = new WorkItemFromCommentGenerator(_config, parsedLogData);
 
-            if (File.Exists(@"C:\temp\workItems.txt"))
-            {
-                var tw = new WorkItemByDayGenerator();
-                tw.Load(@"C:\temp\workItems.txt");
-                widg = tw;
-            }
-            else
-            {
-                widg = new WorkItemFromCommentGenerator(parsedLogData);
-            }
+            using var csvFile = new StreamWriter(OutputFile("PresenceHours.csv"), false);
+            using var xl = new ExcelPackage(fi);
 
-            using (var csvFile = new StreamWriter(@"C:\temp\PresenceHours.csv", false))
-            using (var xl = new ExcelPackage(fi))
+            foreach (var logEntryYear in parsedLogData.GroupBy(pld => pld.Date.Year))
             {
-                foreach (var logEntryYear in parsedLogData.GroupBy(pld => pld.Date.Year))
+                var ws = xl.Workbook.Worksheets.Add("Y" + logEntryYear.Key);
+
+                ws.Cells["A1"].Value = "Dato";
+                ws.Cells["B1"].Value = "Dato Totalt";
+                ws.Cells["D1"].Value = "Norm";
+                ws.Cells["E1"].Value = "Ov50";
+                ws.Cells["F1"].Value = "Ov100";
+                ws.Cells["G1"].Value = "Tid inn";
+                ws.Cells["H1"].Value = "Tid ut";
+                ws.Cells["I1"].Value = "Uke total";
+                ws.Cells["K1"].Value = "Måned total";
+
+                ws.Column(1).Width = 19;
+
+                ws.Cells["A1:K1"].Style.Font.Bold = true;
+
+                int rowNo = 2;
+
+                var yearTotal = 0m;
+                var monthTotal = 0m;
+                var currMonth = -1;
+
+                foreach (var logEntryWeek in logEntryYear.GroupBy(ley => ley.WeekNumber))
                 {
-                    var ws = xl.Workbook.Worksheets.Add("Y" + logEntryYear.Key);
+                    var weekTime = 0m;
+                    var firstday = true;
 
-                    ws.Cells["A1"].Value = "Dato";
-                    ws.Cells["B1"].Value = "Dato Totalt";
-                    ws.Cells["D1"].Value = "Norm";
-                    ws.Cells["E1"].Value = "Ov50";
-                    ws.Cells["F1"].Value = "Ov100";
-                    ws.Cells["G1"].Value = "Tid inn";
-                    ws.Cells["H1"].Value = "Tid ut";
-                    ws.Cells["I1"].Value = "Uke total";
-                    ws.Cells["K1"].Value = "Måned total";
-
-                    ws.Column(1).Width = 19;
-
-                    ws.Cells["A1:K1"].Style.Font.Bold = true;
-
-                    int rowNo = 2;
-
-                    var yearTotal = 0m;
-                    var monthTotal = 0m;
-                    var currMonth = -1;
-
-                    foreach (var logEntryWeek in logEntryYear.GroupBy(ley => ley.WeekNumber))
+                    foreach (var logEntry in FillMissingDays(logEntryWeek))
                     {
-                        var weekTime = 0m;
-                        var firstday = true;
-
-                        foreach (var logEntry in FillMissingDays(logEntryWeek))
+                        if (currMonth != logEntry.Date.Month)
                         {
-                            if (currMonth != logEntry.Date.Month)
+                            if (monthTotal > 0m && rowNo > 2)
                             {
-                                if (monthTotal > 0m && rowNo > 2)
-                                {
-                                    ws.Cells[rowNo - 1, 11].Value = monthTotal;
-                                    ws.Cells[rowNo - 1, 12].Value = FormatHours(monthTotal);
-                                }
-                                currMonth = logEntry.Date.Month;
-                                monthTotal = 0m;
+                                ws.Cells[rowNo - 1, 11].Value = monthTotal;
+                                ws.Cells[rowNo - 1, 12].Value = FormatHours(monthTotal);
                             }
-
-                            ws.Cells[rowNo, 1].Value = logEntry.Date;
-
-                            if (!logEntry.IsEmpty)
-                            {
-                                var diff = logEntry.LeaveTime - logEntry.EnterTime;
-                                var totalHours = (decimal)diff.TotalMinutes / 60m;
-                                var normHours = Math.Min(7.5m, totalHours);
-                                var pcs50Hours = Math.Min(13m - 7.5m, totalHours - normHours);
-                                var pcs100Hours = totalHours - (normHours + pcs50Hours);
-
-                                if (totalHours != (normHours + pcs50Hours + pcs100Hours))
-                                {
-                                    throw new InvalidOperationException("programmer idiot");
-                                }
-
-                                ws.Cells[rowNo, 2].Value = totalHours;
-                                ws.Cells[rowNo, 3].Value = FormatHours(totalHours);
-                                ws.Cells[rowNo, 4].Value = normHours;
-                                ws.Cells[rowNo, 5].Value = pcs50Hours;
-                                ws.Cells[rowNo, 6].Value = pcs100Hours;
-                                ws.Cells[rowNo, 7].Value = logEntry.EnterTime;
-                                ws.Cells[rowNo, 8].Value = logEntry.LeaveTime;
-
-                                weekTime += totalHours;
-                                yearTotal += totalHours;
-                                monthTotal += totalHours;
-
-                                csvFile.WriteLine("{0};{1:0.00};{2:0.00};{3:0.00};{4:0.00};{5};{6}",
-                                    logEntry.Date.ToString("yyyy-MM-dd"), totalHours, normHours, pcs50Hours, pcs100Hours,
-                                    logEntry.EnterTime.ToString("hh\\:mm"), logEntry.LeaveTime.ToString("hh\\:mm"));
-                            }
-
-                            if (firstday)
-                            {
-                                ws.Row(rowNo).Style.Fill.PatternType = ExcelFillStyle.Solid;
-                                ws.Row(rowNo).Style.Fill.BackgroundColor.SetColor(Color.FromArgb(200, 255, 200));
-                                ws.Cells[rowNo, 13].Value = $"Uke {logEntry.WeekNumber}";
-                                firstday = false;
-                            }
-
-                            rowNo++;
+                            currMonth = logEntry.Date.Month;
+                            monthTotal = 0m;
                         }
 
-                        //Set week total on previous row.
-                        if (rowNo > 2 && weekTime > 0)
+                        ws.Cells[rowNo, 1].Value = logEntry.Date;
+
+                        if (!logEntry.IsEmpty)
                         {
-                            ws.Cells[rowNo - 1, 9].Value = weekTime;
-                            ws.Cells[rowNo - 1, 10].Value = FormatHours(weekTime);
+                            var diff = logEntry.LeaveTime - logEntry.EnterTime;
+                            var totalHours = (decimal)diff.TotalMinutes / 60m;
+                            var normHours = Math.Min(7.5m, totalHours);
+                            var pcs50Hours = Math.Min(13m - 7.5m, totalHours - normHours);
+                            var pcs100Hours = totalHours - (normHours + pcs50Hours);
+
+                            if (totalHours != (normHours + pcs50Hours + pcs100Hours))
+                            {
+                                throw new InvalidOperationException("programmer idiot");
+                            }
+
+                            ws.Cells[rowNo, 2].Value = totalHours;
+                            ws.Cells[rowNo, 3].Value = FormatHours(totalHours);
+                            ws.Cells[rowNo, 4].Value = normHours;
+                            ws.Cells[rowNo, 5].Value = pcs50Hours;
+                            ws.Cells[rowNo, 6].Value = pcs100Hours;
+                            ws.Cells[rowNo, 7].Value = logEntry.EnterTime;
+                            ws.Cells[rowNo, 8].Value = logEntry.LeaveTime;
+
+                            weekTime += totalHours;
+                            yearTotal += totalHours;
+                            monthTotal += totalHours;
+
+                            csvFile.WriteLine("{0};{1:0.00};{2:0.00};{3:0.00};{4:0.00};{5};{6}",
+                                logEntry.Date.ToString("yyyy-MM-dd"), totalHours, normHours, pcs50Hours, pcs100Hours,
+                                logEntry.EnterTime.ToString("hh\\:mm"), logEntry.LeaveTime.ToString("hh\\:mm"));
                         }
+
+                        if (firstday)
+                        {
+                            ws.Row(rowNo).Style.Fill.PatternType = ExcelFillStyle.Solid;
+                            ws.Row(rowNo).Style.Fill.BackgroundColor.SetColor(Color.FromArgb(200, 255, 200));
+                            ws.Cells[rowNo, 13].Value = $"Uke {logEntry.WeekNumber}";
+                            firstday = false;
+                        }
+
+                        rowNo++;
                     }
 
-                    ws.Cells[$"A2:A{rowNo}"].Style.Numberformat.Format = "yyyy-mm-dd";
-                    ws.Cells[$"B2:B{rowNo}"].Style.Numberformat.Format = "0.00";
-                    ws.Cells[$"C2:C{rowNo}"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
-                    ws.Cells[$"D2:F{rowNo}"].Style.Numberformat.Format = "0.00";
-                    ws.Cells[$"G2:H{rowNo}"].Style.Numberformat.Format = "[HH]:mm";
-                    ws.Cells[$"I2:I{rowNo}"].Style.Numberformat.Format = "0.00";
-                    ws.Cells[$"J2:J{rowNo}"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
-                    ws.Cells[$"K2:K{rowNo}"].Style.Numberformat.Format = "0.00";
-                    ws.Cells[$"L2:L{rowNo}"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
-
-                    rowNo += 2;
-                    ws.Cells[rowNo, 6].Value = "År totalt";
-                    ws.Cells[rowNo, 8].Value = yearTotal;
-                    ws.Cells[rowNo, 8].Style.Numberformat.Format = "0.00";
-
-                    ws.View.FreezePanes(2, 1);
+                    //Set week total on previous row.
+                    if (rowNo > 2 && weekTime > 0)
+                    {
+                        ws.Cells[rowNo - 1, 9].Value = weekTime;
+                        ws.Cells[rowNo - 1, 10].Value = FormatHours(weekTime);
+                    }
                 }
 
-                if (parseErrors.Count > 0)
-                {
-                    var werr = xl.Workbook.Worksheets.Add("Errors");
-                    werr.Column(1).Width = 200;
-                    for (int idx = 0; idx < parseErrors.Count; idx++)
-                        werr.Cells[idx + 1, 1].Value = parseErrors[idx];
-                }
+                ws.Cells[$"A2:A{rowNo}"].Style.Numberformat.Format = "yyyy-mm-dd";
+                ws.Cells[$"B2:B{rowNo}"].Style.Numberformat.Format = "0.00";
+                ws.Cells[$"C2:C{rowNo}"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
+                ws.Cells[$"D2:F{rowNo}"].Style.Numberformat.Format = "0.00";
+                ws.Cells[$"G2:H{rowNo}"].Style.Numberformat.Format = "[HH]:mm";
+                ws.Cells[$"I2:I{rowNo}"].Style.Numberformat.Format = "0.00";
+                ws.Cells[$"J2:J{rowNo}"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
+                ws.Cells[$"K2:K{rowNo}"].Style.Numberformat.Format = "0.00";
+                ws.Cells[$"L2:L{rowNo}"].Style.HorizontalAlignment = ExcelHorizontalAlignment.Right;
 
-                GenerateWorkItemPages(xl, widg, parsedLogData);
+                rowNo += 2;
+                ws.Cells[rowNo, 6].Value = "År totalt";
+                ws.Cells[rowNo, 8].Value = yearTotal;
+                ws.Cells[rowNo, 8].Style.Numberformat.Format = "0.00";
 
-                xl.Save();
+                ws.View.FreezePanes(2, 1);
             }
+
+            if (parseErrors.Count > 0)
+            {
+                var werr = xl.Workbook.Worksheets.Add("Errors");
+                werr.Column(1).Width = 200;
+                for (int idx = 0; idx < parseErrors.Count; idx++)
+                    werr.Cells[idx + 1, 1].Value = parseErrors[idx];
+            }
+
+            GenerateWorkItemPages(xl, widg, parsedLogData);
+
+            xl.Save();
         }
 
         private static void GenerateWorkItemPages(ExcelPackage xl, IWorkItemGenerator widg, List<LogEntry> parsedLogData)
@@ -246,7 +240,7 @@ namespace LogPresence
 
                 bool gray = false;
 
-                foreach (var logEntry in logEntryYear.OrderBy(le => le.Date))
+                foreach (var logEntry in GetFullYearOfEntries(logEntryYear))
                 {
                     var diff = logEntry.LeaveTime - logEntry.EnterTime;
                     var totalHours = (decimal)diff.TotalMinutes / 60m;
@@ -313,6 +307,39 @@ namespace LogPresence
             }
         }
 
+        private static IEnumerable<LogEntry> GetFullYearOfEntries(IGrouping<int, LogEntry> logEntryYear)
+        {
+            var lookup = logEntryYear.ToDictionary(le => le.Date);
+
+            var dFirst = new DateTime(logEntryYear.Key, 1, 1);
+            for (var d = 0; d < 366; d++)
+            {
+                var day = dFirst.AddDays(d);
+                if (day.Year != logEntryYear.Key || day > DateTime.Now)
+                {
+                    break;
+                }
+
+                var dow = day.DayOfWeek;
+
+                if (lookup.TryGetValue(day, out var le))
+                {
+                    yield return le;
+                }
+                else if (day.DayOfWeek != DayOfWeek.Sunday && day.DayOfWeek != DayOfWeek.Saturday)
+                {
+                    yield return new LogEntry
+                    {
+                        Date = day,
+                        Comment = "Whole day",
+                        EnterTime = TimeSpan.Zero,
+                        LeaveTime = TimeSpan.Zero,
+                        WorkItemsLine = ""
+                    };
+                }
+            }
+        }
+
         private static string FormatHours(decimal hours) => $"{Math.Floor(hours):00}:{(int)(Math.Round((hours % 1.0m) * 60)):00}";
 
         private static IEnumerable<LogEntry> FillMissingDays(IEnumerable<LogEntry> les)
@@ -332,6 +359,23 @@ namespace LogPresence
             }
         }
 
+        private static IEnumerable<LogEntry> FillAllMissingWorkdays(IEnumerable<LogEntry> les)
+        {
+            var days = les.ToList();
+            if (days.Count == 0)
+                throw new InvalidOperationException("wat");
+            var mondayInThisWeek = days[0].Date.AddDays(-MondayOffsetDays(days[0].Date));
+
+            for (var i = 0; i < 7; i++)
+            {
+                var day = days.Find(el => el.Date.DayOfWeek == OrderedDays[i]);
+                if (day == null)
+                    yield return new LogEntry() { Date = mondayInThisWeek.AddDays(i), EnterTime = TimeSpan.Zero, LeaveTime = TimeSpan.Zero };
+                else
+                    yield return day;
+            }
+        }
+
         private static int MondayOffsetDays(DateTime date)
         {
             var dow = date.DayOfWeek;
@@ -340,12 +384,12 @@ namespace LogPresence
 
         private static readonly DayOfWeek[] OrderedDays = new [] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday };
 
-        private static List<LogEntry> ParseLogData(string path, out List<string> errorList)
+        private static (List<LogEntry>, List<string>) ParseLogData(string path)
         {
             var logEntries = new List<LogEntry>();
             var current = new LogEntry();
             var state = EventType.Out;
-            errorList = new List<string>();
+            var errorList = new List<string>();
             var startOffset = -4;
             var endOffset = 1;
             var currWiLine = string.Empty;
@@ -393,7 +437,7 @@ namespace LogPresence
                     if (current.Date != time.Date)
                     {
                         //Switched date, close previous
-                        if (current.Date != default(DateTime))
+                        if (current.Date != default)
                         {
                             if (current.Date.AddDays(1) == time.Date && state == EventType.In && eventType == EventType.Out) //Worked over midnight, probably.
                             {
@@ -436,7 +480,7 @@ namespace LogPresence
 
             logEntries.Add(current);
 
-            return logEntries;
+            return (logEntries, errorList);
         }
 
         private enum EventType
@@ -446,6 +490,8 @@ namespace LogPresence
 
         private static readonly string[] EventsIn = { "SessionUnlock", "Service started", "SessionLogon", "ConsoleConnect", "RemoteConnect" };
         private static readonly string[] EventsOut = { "SessionLock", "SessionLogoff", "ConsoleDisconnect", "RemoteDisconnect", "Service stopping" };
+        private readonly IConfiguration _config;
+
         private static EventType GetEventType(string logData)
         {
             if (EventsIn.Any(logData.Contains))
