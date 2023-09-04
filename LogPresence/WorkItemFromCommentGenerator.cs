@@ -10,12 +10,12 @@ namespace LogPresence
 {
     internal class WorkItemFromCommentGenerator : IWorkItemGenerator
     {
-        private readonly Dictionary<DateTime, string> _lookup;
+        private readonly Dictionary<DateTime, (string Wl, int LineNo)> _lookup;
         private readonly IConfiguration _config;
 
         public WorkItemFromCommentGenerator(IConfiguration config, List<PresenceSaver.LogEntry> parsedLogData)
         {
-            _lookup = parsedLogData.ToDictionary(le => le.Date, le => le.WorkItemsLine);
+            _lookup = parsedLogData.ToDictionary(le => le.Date, le => (le.WorkItemsLine, le.WorkItemsLineLineNo));
             _config = config;
         }
 
@@ -23,9 +23,9 @@ namespace LogPresence
         {
             Info[] parts;
 
-            if (_lookup.TryGetValue(date, out var line) && line.Length > 2)
+            if (_lookup.TryGetValue(date, out var tupl) && tupl.Wl.Length > 2)
             {
-                parts = ParseLine(line).ToArray();
+                parts = ParseLine(tupl.Wl, tupl.LineNo).ToArray();
             }
             else
             {
@@ -56,14 +56,14 @@ namespace LogPresence
 
                 if (byPercentage.Length == 0)
                 {
-                    throw new InvalidOperationException($"On date {date} we have hours left but no percentages!");
+                    throw new InvalidOperationException($"On date {date} we have hours left but no percentages! Line No {tupl.LineNo}");
                 }
 
                 var totalPercentage = byPercentage.Sum(s => s.Percentage);
 
                 if (totalPercentage == 0)
                 {
-                    throw new InvalidOperationException("Total percentage is 0");
+                    throw new InvalidOperationException($"Total percentage is 0. LineNo {tupl.LineNo}");
                 }
 
                 foreach (var byPss in byPercentage)
@@ -108,12 +108,12 @@ namespace LogPresence
             public string ActivityCode { get; set; }
         }
 
-        private IEnumerable<Info> ParseLine(string lineRaw)
+        private IEnumerable<Info> ParseLine(string lineRaw, int lineNo)
         {
             var mr = Regex.Match(lineRaw, @"\s*#\s*WI:\s*(.*)$");
             if (!mr.Success)
             {
-                throw new InvalidOperationException($"Line {lineRaw} is absolutely unparsable");
+                throw new InvalidOperationException($"Line #{lineNo} is absolutely unparsable");
             }
 
             var line = mr.Groups[1].Value;
@@ -125,7 +125,7 @@ namespace LogPresence
 
                 if (!m.Success)
                 {
-                    throw new InvalidOperationException($"Line {lineRaw}, elem {elem} is unparsable");
+                    throw new InvalidOperationException($"Line #{lineNo}, elem {elem} is unparsable");
                 }
 
                 var info = new Info
@@ -139,7 +139,7 @@ namespace LogPresence
 
                 if (info.ActivityCode == "ABS" && (info.Hours > 0 || info.Percentage > 0))
                 {
-                    throw new InvalidOperationException("Absent activity can only have 0H as duration");
+                    throw new InvalidOperationException($"Line {lineNo} Absent activity can only have 0H as duration");
                 }
 
                 yield return info;

@@ -275,12 +275,12 @@ namespace LogPresence
                 ws.Cells[$"A2:A{rowNo}"].Style.Numberformat.Format = "mm/dd/yyyy";
                 ws.Cells[$"C2:C{rowNo}"].Style.Numberformat.Format = "0.00";
 
-                var byWorkItem = allDays.GroupBy(d => d.WorkItemId).Select(grp => new 
-                    { 
-                        WorkItem = grp.Key, 
-                        Descrs = grp.Select(g => g.Description).Where(d => d.Length > 0).Distinct().ToArray(), 
-                        HoursSum = grp.Sum(g => g.Hours)
-                    }).ToArray();
+                var byWorkItem = allDays.GroupBy(d => d.WorkItemId).Select(grp => new
+                {
+                    WorkItem = grp.Key,
+                    Descrs = grp.Select(g => g.Description).Where(d => d.Length > 0).Distinct().ToArray(),
+                    HoursSum = grp.Sum(g => g.Hours)
+                }).ToArray();
 
                 rowNo += 2;
 
@@ -353,7 +353,7 @@ namespace LogPresence
             {
                 var day = days.Find(el => el.Date.DayOfWeek == OrderedDays[i]);
                 if (day == null)
-                    yield return new LogEntry() {Date = mondayInThisWeek.AddDays(i), EnterTime = TimeSpan.Zero, LeaveTime = TimeSpan.Zero};
+                    yield return new LogEntry() { Date = mondayInThisWeek.AddDays(i), EnterTime = TimeSpan.Zero, LeaveTime = TimeSpan.Zero };
                 else
                     yield return day;
             }
@@ -379,10 +379,10 @@ namespace LogPresence
         private static int MondayOffsetDays(DateTime date)
         {
             var dow = date.DayOfWeek;
-            return dow == DayOfWeek.Sunday ? 6 : ((int) dow) - 1;
+            return dow == DayOfWeek.Sunday ? 6 : ((int)dow) - 1;
         }
 
-        private static readonly DayOfWeek[] OrderedDays = new [] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday };
+        private static readonly DayOfWeek[] OrderedDays = new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday };
 
         private static (List<LogEntry>, List<string>) ParseLogData(string path)
         {
@@ -393,11 +393,14 @@ namespace LogPresence
             var startOffset = -4;
             var endOffset = 1;
             var currWiLine = string.Empty;
+            var currWiLineNo = -1;
+            var lineNo = 0;
 
             foreach (var liner in File.ReadLines(path))
             {
+                lineNo++;
                 var line = liner.Trim();
-                try 
+                try
                 {
                     if (line.StartsWith("#"))
                     {
@@ -416,10 +419,11 @@ namespace LogPresence
                         {
                             if (!cmd.StartsWith("WI: "))
                             {
-                                throw new InvalidOperationException("Invalid WI line " + line);
+                                throw new InvalidOperationException($"Invalid WI line");
                             }
 
                             currWiLine = line;
+                            currWiLineNo = lineNo;
                         }
 
                         continue;
@@ -443,13 +447,20 @@ namespace LogPresence
                             {
                                 current.LeaveTime = TimeSpan.FromHours(24);
                                 logEntries.Add(current);
-                                current = new LogEntry {EnterTime = TimeSpan.FromSeconds(0), Date = time.Date, WorkItemsLine = currWiLine};
+                                current = new LogEntry
+                                {
+                                    EnterTime = TimeSpan.FromSeconds(0),
+                                    Date = time.Date,
+                                    WorkItemsLine = currWiLine,
+                                    WorkItemsLineLineNo = currWiLineNo
+                                };
                                 currWiLine = string.Empty;
+                                currWiLineNo = -1;
                             }
                             else
                             {
                                 if (state != EventType.Out)
-                                    errorList.Add(string.Format("Warning, no end to {0}..", current.Date));
+                                    errorList.Add($"Warning, no end to {current.Date} lines before {lineNo}");
                                 else
                                     logEntries.Add(current);
                             }
@@ -461,10 +472,12 @@ namespace LogPresence
                             EnterTime = enterTime,
                             LeaveTime = enterTime,
                             Date = time.Date,
-                            WorkItemsLine = currWiLine
+                            WorkItemsLine = currWiLine,
+                            WorkItemsLineLineNo = currWiLineNo
                         };
                         state = EventType.In;
                         currWiLine = string.Empty;
+                        currWiLineNo = -1;
                     }
                     else
                     {
@@ -474,7 +487,7 @@ namespace LogPresence
                 }
                 catch (Exception ex)
                 {
-                    errorList.Add(string.Format("Eh, line {0} failed with {1}", line, ex.Message));
+                    errorList.Add($"Eh, line# {lineNo} failed with {ex.Message}.");
                 }
             }
 
@@ -528,6 +541,7 @@ namespace LogPresence
             public TimeSpan LeaveTime;
 
             public string WorkItemsLine { get; set; }
+            public int WorkItemsLineLineNo { get; set; }
         }
     }
 }
