@@ -1,12 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFramework>net7.0-windows8.0</TargetFramework>
+		<TargetFramework>net8.0-windows8.0</TargetFramework>
 		<OutputType>Exe</OutputType>
 		<ProduceReferenceAssembly>False</ProduceReferenceAssembly>
 	</PropertyGroup>
 	<ItemGroup>
 	  <PackageReference Include="EPPlus" Version="6.1.1" />
-	  <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="7.0.0" />
+	  <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
 	</ItemGroup>
 	<ItemGroup>
 	  <None Update="appsettings.json">
